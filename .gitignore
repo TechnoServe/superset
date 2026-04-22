@@ -21,6 +21,13 @@
 *.swp
 __pycache__
 
+*.env
+.env
+/docker/.env
+*superset_config.py
+
+
+
 .aider*
 .local
 .cache
