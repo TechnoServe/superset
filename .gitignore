@@ -26,7 +26,10 @@ __pycache__
 /docker/.env
 *superset_config.py
 
-
+docker-compose-non-dev.yml
+docker-compose.yml
+docker/.env
+docker/pythonpath_dev/superset_config.py
 
 .aider*
 .local
