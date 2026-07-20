@@ -29,6 +29,14 @@ from flask_caching.backends.filesystemcache import FileSystemCache
 
 logger = logging.getLogger()
 
+FEATURE_FLAGS = {
+        "ENABLE_TEMPLATE_PROCESSING": True,
+        "CSS_TEMPLATES": True,
+        "EMBEDDED_SUPERSET": True
+}
+
+ENABLE_UI_THEME_ADMINISTRATION = True
+
 DATABASE_DIALECT = os.getenv("DATABASE_DIALECT")
 DATABASE_USER = os.getenv("DATABASE_USER")
 DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
@@ -117,6 +125,111 @@ SQLLAB_CTAS_NO_LIMIT = True
 log_level_text = os.getenv("SUPERSET_LOG_LEVEL", "INFO")
 LOG_LEVEL = getattr(logging, log_level_text.upper(), logging.INFO)
 
+HTML_SANITIZATION = True  # Keep this ON
+
+HTML_SANITIZATION_SCHEMA_EXTENSIONS = {
+    "attributes": {
+        "*": [
+            "style",
+            "class",
+            "className",
+            "id",
+            "title",
+            "align",
+            "valign",
+            "colspan",
+            "rowspan",
+            "width",
+            "height",
+            "alt",       # Safe - just text
+        ],
+        # Scope href, target, src to specific tags only
+        # rather than "*" - limits XSS surface
+        "a": ["href", "target", "rel"],
+        "img": ["src", "alt", "width", "height"],
+	"script": ["type"],
+    },
+    "tagNames": [
+        "style", "script",
+        "div", "span", "section", "article", "header", "footer",
+        "main", "aside", "nav",
+        "p", "h1", "h2", "h3", "h4", "h5", "h6",
+        "strong", "b", "em", "i", "u", "s", "small",
+        "br", "hr", "pre", "code", "blockquote",
+        "ul", "ol", "li", "dl", "dt", "dd",
+        "table", "thead", "tbody", "tfoot",
+        "tr", "th", "td", "caption",
+        "img",
+        "a",
+        "label", "sup", "sub",
+    ],
+}
+
+
+TALISMAN_ENABLED = True
+
+TALISMAN_CONFIG = {
+    "content_security_policy": {
+        "base-uri": ["'self'"],
+        "default-src": ["'self'"],
+        "img-src": [
+            "'self'",
+            "blob:",
+            "data:",
+            "https://apachesuperset.gateway.scarf.sh",
+            "https://static.scarf.sh/",
+            "https://cdn.brandfolder.io",
+            "ows.terrestris.de",
+            "https://cdn.document360.io",
+        ],
+        "worker-src": ["'self'", "blob:"],
+        "connect-src": [
+            "'self'",
+            "https://api.mapbox.com",
+            "https://events.mapbox.com",
+            "https://tile.openstreetmap.org",
+            "https://tile.osm.ch",
+            "https://basemaps.cartocdn.com",
+            "https://*.basemaps.cartocdn.com",
+            "https://tiles.openfreemap.org",
+            "https://*.maptiler.com",
+            "https://tiles.stadiamaps.com",
+            "https://tiles.versatiles.org",
+            "https://*.protomaps.com",
+            "https://*.maplibre.org",
+        ],
+        "object-src": ["'none'"],
+        "style-src": [
+            "'self'",
+            "'unsafe-inline'",
+            "https://fonts.googleapis.com",
+            "https://fonts.gstatic.com",
+            "https://use.typekit.net",
+            "https://use.typekit.com",
+        ],
+        "font-src": [
+            "'self'",
+            "https://fonts.googleapis.com",
+            "https://fonts.gstatic.com",
+            "https://use.typekit.net",
+            "https://use.typekit.com",
+        ],
+        "script-src": [
+            "'self'",
+            "'unsafe-inline'",
+            "'unsafe-eval'",
+        ],
+        "frame-ancestors": [
+            "'self'",
+            "https://my.pima.ink",
+        ],
+    },
+    "force_https": True,
+    "frame_options": None,
+}
+
+
+
 if os.getenv("CYPRESS_CONFIG") == "true":
     # When running the service as a cypress backend, we need to import the config
     # located @ tests/integration_tests/superset_test_config.py
@@ -142,3 +255,33 @@ try:
     )
 except ImportError:
     logger.info("Using default Docker config...")
+
+
+
+
+
+
+FEATURE_FLAGS = {
+    **globals().get("FEATURE_FLAGS", {}),
+    "ENABLE_TEMPLATE_PROCESSING": True,
+    "CSS_TEMPLATES": True,
+    "EMBEDDED_SUPERSET": True,
+}
+
+HTTP_HEADERS = {}
+
+TALISMAN_ENABLED = True
+
+TALISMAN_CONFIG = {
+    **globals().get("TALISMAN_CONFIG", {}),
+    "force_https": True,
+    "frame_options": None,
+    "content_security_policy": {
+        **globals().get("TALISMAN_CONFIG", {}).get("content_security_policy", {}),
+        "frame-ancestors": [
+            "'self'",
+            "https://my.pima.ink",
+            "https://dashboard.pima.ink",
+        ],
+    },
+}
