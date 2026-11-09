@@ -62,8 +62,18 @@ import { logEvent } from 'src/logger/actions';
 import { LOG_ACTIONS_CHANGE_DASHBOARD_FILTER } from 'src/logger/LogUtils';
 import { FilterBarOrientation, RootState } from 'src/dashboard/types';
 import { UserWithPermissionsAndRoles } from 'src/types/bootstrapTypes';
+import {
+  isFilterKeyPublishHeld,
+  isProtectedFilterKey,
+  releaseFilterKeyPublish,
+} from 'src/dashboard/util/sharedFilterStateHold';
 import { isChartCustomization } from '../FiltersConfigModal/utils';
-import { checkIsApplyDisabled, getFiltersToApply } from './utils';
+import {
+  checkIsApplyDisabled,
+  clearedCustomizationTarget,
+  getAppliedFilterLogPayload,
+  getFiltersToApply,
+} from './utils';
 import { extractLabel } from '../selectors';
 import { FiltersBarProps } from './types';
 import {
@@ -102,6 +112,7 @@ const publishDataMask = debounce(
     dataMaskSelected: DataMaskStateWithId,
     tabId,
   ) => {
+    if (isFilterKeyPublishHeld()) return;
     const { location } = history;
     const { search } = location;
     const previousParams = new URLSearchParams(search);
@@ -122,9 +133,12 @@ const publishDataMask = debounce(
     const nativeFiltersCacheKey = getUrlParam(URL_PARAMS.nativeFiltersKey);
     const dataMask = JSON.stringify(dataMaskSelected);
 
+    // The key of a shared link whose state could not be loaded is never
+    // updated in place; a new key is created so the link keeps its state.
     if (
       updateKey &&
       nativeFiltersCacheKey &&
+      !isProtectedFilterKey(nativeFiltersCacheKey) &&
       (await updateFilterKey(
         dashboardId,
         dataMask,
@@ -429,12 +443,22 @@ const FilterBar: FC<FiltersBarProps> = ({
   );
 
   const handleApply = useCallback(() => {
-    dispatch(logEvent(LOG_ACTIONS_CHANGE_DASHBOARD_FILTER, {}));
+    releaseFilterKeyPublish();
     setUpdateKey(1);
 
     const filtersToApply = getFiltersToApply(
       dataMaskSelected,
       inScopeFilterIds,
+    );
+
+    dispatch(
+      logEvent(LOG_ACTIONS_CHANGE_DASHBOARD_FILTER, {
+        filters: getAppliedFilterLogPayload(
+          filtersToApply,
+          filters,
+          dataMaskSelected,
+        ),
+      }),
     );
 
     filtersToApply.forEach(filterId => {
@@ -469,7 +493,8 @@ const FilterBar: FC<FiltersBarProps> = ({
       );
       const pendingItems = (
         Object.values(pendingChartCustomizations).filter(Boolean) as (
-          ChartCustomization | ChartCustomizationDivider
+          | ChartCustomization
+          | ChartCustomizationDivider
         )[]
       ).filter(item => existingCustomizationIds.has(item.id));
 
@@ -481,11 +506,11 @@ const FilterBar: FC<FiltersBarProps> = ({
     } else if (hasClearedChartCustomizations) {
       const clearedChartCustomizations = chartCustomizationValues.map(item => ({
         ...item,
-        targets: [
-          {
-            datasetId: item.targets?.[0]?.datasetId,
-          },
-        ] as [Partial<NativeFilterTarget>],
+        // Keep the datasource type through a clear (sc-111089) — the invariant
+        // and its regression test live in clearedCustomizationTarget.
+        targets: [clearedCustomizationTarget(item.targets?.[0])] as [
+          Partial<NativeFilterTarget>,
+        ],
       }));
 
       chartCustomizationValues.forEach(item => {
@@ -501,6 +526,7 @@ const FilterBar: FC<FiltersBarProps> = ({
   }, [
     dataMaskSelected,
     dispatch,
+    filters,
     inScopeFilterIds,
     pendingChartCustomizations,
     pendingCustomizationDataMasks,
@@ -517,22 +543,21 @@ const FilterBar: FC<FiltersBarProps> = ({
       // Only clear in-scope filters
       if (!inScopeFilterIds.has(id)) return;
 
-      // Range filters use [null, null] as the cleared value; others use undefined
-      const clearedValue =
-        filterType === 'filter_range' ? [null, null] : undefined;
+      // Cleared values stage as explicit null ([null, null] for ranges), never
+      // undefined: the select plugin's init effect treats undefined as
+      // "uninitialized" and would re-apply default values once the clear-all
+      // trigger completes.
+      const clearedValue = filterType === 'filter_range' ? [null, null] : null;
       const isRequired = !!filter.controlValues?.enableEmptyFilter;
       if (dataMaskSelected[id]) {
         // Stage the cleared value locally; do NOT dispatch to Redux here.
         // Persistence happens when the user clicks Apply.
         setDataMaskSelected(draft => {
-          if (draft[id].filterState?.value !== undefined) {
-            draft[id].filterState!.value = clearedValue;
-          }
           draft[id].extraFormData = {};
-          if (draft[id].filterState) {
-            draft[id].filterState!.validateStatus = isRequired
-              ? 'error'
-              : undefined;
+          const { filterState } = draft[id];
+          if (filterState) {
+            filterState.value = clearedValue;
+            filterState.validateStatus = isRequired ? 'error' : undefined;
           }
         });
         newClearAllTriggers[id] = true;
@@ -680,6 +705,7 @@ const FilterBar: FC<FiltersBarProps> = ({
         }
         toggleFiltersBar={verticalConfig.toggleFiltersBar}
         width={verticalConfig.width}
+        mobileMode={verticalConfig.mobileMode}
         clearAllTriggers={clearAllTriggers}
         onClearAllComplete={handleClearAllComplete}
       />

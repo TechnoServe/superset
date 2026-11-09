@@ -403,6 +403,27 @@ def test_get_masked_fields(
     assert sorted(masked) == sorted(expected_result)
 
 
+def test_reveal_sensitive_missing_in_old_payload() -> None:
+    """
+    Test that a masked value with no counterpart in the old payload is passed
+    through, matching what engine specs that do not list the path already do.
+    """
+    old_payload = {"foo": "bar"}
+    new_payload = {
+        "foo": "bar",
+        "oauth2_client_info": {"secret": PASSWORD_MASK},
+    }
+
+    assert json.reveal_sensitive(
+        old_payload,
+        new_payload,
+        {"$.oauth2_client_info.secret"},
+    ) == {
+        "foo": "bar",
+        "oauth2_client_info": {"secret": PASSWORD_MASK},
+    }
+
+
 def test_format_timedelta():
     assert json.format_timedelta(timedelta(0)) == "0:00:00"
     assert json.format_timedelta(timedelta(days=1)) == "1 day, 0:00:00"
@@ -429,3 +450,47 @@ def test_dumps_preserves_unicode_when_ensure_ascii_false() -> None:
     assert json.dumps("Hello, world!", ensure_ascii=False) == '"Hello, world!"'
     assert json.dumps("Привет, мир!", ensure_ascii=False) == '"Привет, мир!"'
     assert json.dumps("你好，世界！", ensure_ascii=False) == '"你好，世界！"'
+
+
+def test_redact_sensitive_leaves_empty_values_unmasked() -> None:
+    """An empty secret has nothing to hide, and must not read as a stored one."""
+    payload = {"credential": {"username": "", "password": "", "token": None}}
+
+    assert (
+        json.redact_sensitive(
+            payload,
+            {"$.credential.password", "$.credential.token"},
+        )
+        == payload
+    )
+    assert json.redact_sensitive(
+        {"credential": {"password": "pw"}}, {"$.credential.password"}
+    ) == {"credential": {"password": PASSWORD_MASK}}
+
+
+@pytest.mark.parametrize(
+    "old_payload,expected",
+    [
+        (None, ["$.secret", "$.other"]),
+        ({"secret": "stored"}, ["$.other"]),
+        ({"secret": "stored", "other": "also"}, []),
+        # A stored mask is what master saved when it had nothing to reveal.
+        ({"secret": PASSWORD_MASK, "other": "also"}, ["$.secret"]),
+        # reveal_sensitive restores any stored value, falsy ones included.
+        ({"secret": 0, "other": False}, []),
+        # Earlier releases masked an optional secret that was never set, so an
+        # archived export asks for a value the connection never had.
+        ({"secret": None, "other": ""}, []),
+    ],
+)
+def test_unrevealable_masked_fields(
+    old_payload: dict[str, Any] | None, expected: list[str]
+) -> None:
+    """Masked fields the stored payload has no (non-empty) value for."""
+    new_payload = {"secret": PASSWORD_MASK, "other": PASSWORD_MASK, "plain": "x"}
+
+    assert sorted(
+        json.unrevealable_masked_fields(
+            old_payload, new_payload, {"$.secret", "$.other", "$.plain"}
+        )
+    ) == sorted(expected)

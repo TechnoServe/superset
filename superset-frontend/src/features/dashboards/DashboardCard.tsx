@@ -18,12 +18,9 @@
  */
 import { Link, useHistory } from 'react-router-dom';
 import { t } from '@apache-superset/core/translation';
-import {
-  isFeatureEnabled,
-  FeatureFlag,
-  handleKeyboardActivation,
-} from '@superset-ui/core';
-import { CardStyles } from 'src/views/CRUD/utils';
+import { isFeatureEnabled, FeatureFlag } from '@superset-ui/core';
+import { styled } from '@apache-superset/core/theme';
+import { CardStyles, isNavigationHandledByLink } from 'src/views/CRUD/utils';
 import {
   FaveStar,
   Icons,
@@ -34,10 +31,28 @@ import {
 import { MenuItem } from '@superset-ui/core/components/Menu';
 import { Dashboard } from 'src/views/CRUD/types';
 import { assetUrl } from 'src/utils/assetUrl';
+import { deleteActionLabel } from 'src/utils/softDeleteCopy';
 import { SubjectPile } from 'src/features/subjects/SubjectPile';
 import { KebabMenuButton } from 'src/components';
 import { isUserEditorOrAdmin } from 'src/dashboard/util/permissionUtils';
 import type { UserWithPermissionsAndRoles } from 'src/types/bootstrapTypes';
+import { useIsMobile } from 'src/hooks/useIsMobile';
+
+const MenuItemButton = styled.button`
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  &:disabled {
+    cursor: not-allowed;
+  }
+`;
 
 interface DashboardCardProps {
   isChart?: boolean;
@@ -67,12 +82,18 @@ function DashboardCard({
   onDelete,
 }: DashboardCardProps) {
   const userId = user?.userId;
+  const isMobile = useIsMobile();
 
   const history = useHistory();
   const canEdit = hasPerm('can_write');
   const canDelete = hasPerm('can_write');
+  const softDelete = isFeatureEnabled(FeatureFlag.SoftDelete);
   const canExport = hasPerm('can_export');
-  const allowEdit = isUserEditorOrAdmin(user, dashboard.editors);
+  const allowEdit = isUserEditorOrAdmin(
+    user,
+    dashboard.editors,
+    dashboard.extra_editors,
+  );
   const digest = dashboard.changed_on_utc || dashboard.changed_on;
   const thumbnailUrl =
     isFeatureEnabled(FeatureFlag.Thumbnails) && dashboard.id && digest
@@ -86,6 +107,7 @@ function DashboardCard({
       key: 'edit',
       label: (
         <Tooltip
+          placement="right"
           title={
             allowEdit
               ? null
@@ -94,24 +116,18 @@ function DashboardCard({
                 )
           }
         >
-          <div
-            role="button"
-            tabIndex={0}
+          <MenuItemButton
+            type="button"
             className="action-button"
             onClick={
               allowEdit ? () => openDashboardEditModal(dashboard) : undefined
             }
-            onKeyDown={
-              allowEdit
-                ? handleKeyboardActivation(() =>
-                    openDashboardEditModal(dashboard),
-                  )
-                : undefined
-            }
             data-test="dashboard-card-option-edit-button"
+            disabled={!allowEdit}
+            aria-disabled={!allowEdit}
           >
             <Icons.EditOutlined iconSize="l" data-test="edit-alt" /> {t('Edit')}
-          </div>
+          </MenuItemButton>
         </Tooltip>
       ),
       disabled: !allowEdit,
@@ -122,18 +138,14 @@ function DashboardCard({
     menuItems.push({
       key: 'export',
       label: (
-        <div
-          role="button"
-          tabIndex={0}
+        <MenuItemButton
+          type="button"
           onClick={() => handleBulkDashboardExport([dashboard])}
-          onKeyDown={handleKeyboardActivation(() =>
-            handleBulkDashboardExport([dashboard]),
-          )}
           className="action-button"
           data-test="dashboard-card-option-export-button"
         >
           <Icons.UploadOutlined iconSize="l" /> {t('Export')}
-        </div>
+        </MenuItemButton>
       ),
     });
   }
@@ -143,28 +155,31 @@ function DashboardCard({
       key: 'delete',
       label: (
         <Tooltip
+          placement="right"
           title={
             allowEdit
               ? null
-              : t(
-                  'You must be a dashboard editor in order to delete. Please reach out to a dashboard editor to request modifications or edit access.',
-                )
+              : softDelete
+                ? t(
+                    'You must be a dashboard editor in order to archive. Please reach out to a dashboard editor to request modifications or edit access.',
+                  )
+                : t(
+                    'You must be a dashboard editor in order to delete. Please reach out to a dashboard editor to request modifications or edit access.',
+                  )
           }
         >
-          <div
-            role="button"
-            tabIndex={0}
-            className="action-button"
-            onClick={allowEdit ? () => onDelete(dashboard) : undefined}
-            onKeyDown={
-              allowEdit
-                ? handleKeyboardActivation(() => onDelete(dashboard))
-                : undefined
-            }
-            data-test="dashboard-card-option-delete-button"
-          >
-            <Icons.DeleteOutlined iconSize="l" /> {t('Delete')}
-          </div>
+          <span>
+            <MenuItemButton
+              type="button"
+              className="action-button"
+              onClick={allowEdit ? () => onDelete(dashboard) : undefined}
+              disabled={!allowEdit}
+              aria-disabled={!allowEdit}
+              data-test="dashboard-card-option-delete-button"
+            >
+              <Icons.DeleteOutlined iconSize="l" /> {deleteActionLabel()}
+            </MenuItemButton>
+          </span>
         </Tooltip>
       ),
       disabled: !allowEdit,
@@ -173,8 +188,8 @@ function DashboardCard({
 
   return (
     <CardStyles
-      onClick={() => {
-        if (!bulkSelectEnabled) {
+      onClick={event => {
+        if (!bulkSelectEnabled && !isNavigationHandledByLink(event)) {
           history.push(dashboard.url);
         }
       }}
@@ -212,10 +227,12 @@ function DashboardCard({
                 isStarred={favoriteStatus}
               />
             )}
-            <KebabMenuButton
-              menuItems={menuItems}
-              dataTest="dashboard-card-menu"
-            />
+            {!isMobile && (
+              <KebabMenuButton
+                menuItems={menuItems}
+                dataTest="dashboard-card-menu"
+              />
+            )}
           </ListViewCard.Actions>
         }
       />
